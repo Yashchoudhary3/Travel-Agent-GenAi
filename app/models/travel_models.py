@@ -10,5 +10,7 @@ class TravelRequirements(BaseModel):
     days: Optional[int] = None
     travelers: Optional[int] = None
     travel_style: Optional[str] = None
+    budget: float | None = None
+    budget_currency: str | None = None
 
     additional_preferences: list[str] = []

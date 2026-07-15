@@ -11,7 +11,7 @@ def run_graph():
     initial_state = {
           "user_query": (
         "Plan a 7 day trip from Delhi to Japan "
-        "for 2 people with a budget of 3000 dollars."
+        "for 2 people with a budget of 3000 dollars. travel style is anime"
     ),
         "requirements": {},
         "missing_fields": [],
