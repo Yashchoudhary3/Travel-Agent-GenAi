@@ -1,0 +1,13 @@
+langchain 
+langgraph 
+langchain-groq 
+langchain-community 
+fastapi 
+uvicorn 
+streamlit 
+pydantic 
+python-dotenv 
+sqlalchemy 
+tavily-python 
+duckduckgo-search 
+requests
