@@ -2,8 +2,13 @@ from app.config.llm import llm
 from app.models.travel_plan import TravelPlan
 
 structured_llm = llm.with_structured_output(
-    TravelPlan
+    TravelPlan,
 )
+
+
+def _join_lines(items: list[str] | None) -> str:
+    return "\n".join(items or [])
+
 
 class PlanningAgent:
 
@@ -14,117 +19,153 @@ class PlanningAgent:
     ):
 
         summary = research_data["research_summary"]
-        weather = research_data["weather"]
+        weather = research_data.get("weather") or {}
 
         prompt = f"""
 You are an expert travel planner.
 
-Create a practical travel plan using the structured research below.
+Create a practical travel plan using ONLY the information below.
 
 ========================
 TRIP REQUIREMENTS
 ========================
 
 Destination:
-{requirements["destination"]}
+{requirements.get("destination")}
 
 Origin:
-{requirements["origin"]}
+{requirements.get("origin")}
 
 Duration:
-{requirements["days"]} days
+{requirements.get("days")} days
 
-Travellers:
-{requirements["travelers"]}
+Travelers:
+{requirements.get("travelers")}
 
 Budget:
-{requirements["budget"]} {requirements["budget_currency"]}
+{requirements.get("budget")} {requirements.get("budget_currency")}
 
-Travel Style:
-{requirements["travel_style"]}
+Preferred Transport:
+{requirements.get("transport_preference")}
 
-User Preferences
+Preferred Hotel:
+{requirements.get("hotel_preference")}
 
-Travel Style:
-{requirements.get("travel_style")}
+Food Preference:
+{requirements.get("food_preference")}
 
 Additional Preferences:
 {", ".join(requirements.get("additional_preferences", [])) or "None"}
-
-These preferences are mandatory and must override generic travel advice.
 
 ========================
 CURRENT WEATHER
 ========================
 
 Temperature:
-{weather["temperature"]}°C
+{weather.get("temperature")}°C
 
 Wind Speed:
-{weather["wind_speed"]} km/h
+{weather.get("wind_speed")} km/h
 
-Weather condition:
-{weather["condition"]}
+Condition:
+{weather.get("condition")}
 
 ========================
 RESEARCH SUMMARY
 ========================
 
-Must Visit Places:
-{chr(10).join(summary["must_visit_places"])}
+Must Visit Places
+{_join_lines(summary.get("must_visit_places"))}
 
-Best Time:
-{summary["best_time"]}
+Best Time
+{summary.get("best_time") or ""}
 
-Travel Tips:
-{chr(10).join(summary["travel_tips"])}
+Travel Tips
+{_join_lines(summary.get("travel_tips"))}
 
-Local Transportation:
-{summary["local_transport"]}
+Local Transport
+{_join_lines(summary.get("local_transport"))}
 
-Food To Try:
-{chr(10).join(summary["food_to_try"])}
+Recommended Restaurants
+{_join_lines(summary.get("recommended_restaurants"))}
+
+Recommended Hotels
+{_join_lines(summary.get("recommended_hotels"))}
+
+Estimated Hotel Cost Per Night
+{summary.get("estimated_hotel_cost_per_night") or ""}
+
+Estimated Food Cost Per Day
+{summary.get("estimated_food_cost_per_day") or ""}
+
+Estimated Local Transport Cost Per Day
+{summary.get("estimated_local_transport_cost_per_day") or ""}
+
+Estimated Daily Budget
+{summary.get("estimated_daily_budget") or ""}
+
+Food To Try
+{_join_lines(summary.get("food_to_try"))}
 
 ========================
-INSTRUCTIONS
+OUTPUT
 ========================
+
+OUTPUT
 
 Generate:
 
 1. Day-wise itinerary
 2. Recommended attractions
-3. Local food recommendations
-4. Transportation advice
-5. Travel tips
-6. Weather considerations
-7. Budget considerations
+3. Recommended hotels
+4. Recommended restaurants
+5. Food recommendations
+6. Transportation advice
+7. Transport budget (ONLY if available in research)
+8. Hotel budget (ONLY if available in research)
+9. Food budget (ONLY if available in research)
+10. Activity budget (ONLY if available in research)
+11. Total estimated budget (ONLY if calculable from research)
+12. Budget status
+13. Travel tips
+14. Weather notes
+15. Budget notes
 
-Rules:
+========================
+RULES
+========================
 
-- Stay within the user's budget.
-- Never invent hotel, flight, train or attraction prices.
-- If pricing is required, clearly mention that live booking data is needed.
-- Only use the research provided.
-- If some information is unavailable, explicitly mention that instead of guessing.
+- Use ONLY the supplied research.
+- Respect every user preference.
+- User preferences always override generic travel advice.
+- Use attractions only from "Must Visit Places".
+- Use hotels only from "Recommended Hotels".
+- Use restaurants only from "Recommended Restaurants".
+- Never recommend food that conflicts with the user's food preference.
+- Respect the preferred transport and hotel type.
+- Keep the itinerary geographically realistic.
+- Trips shorter than 6 days should normally include no more than two cities.
+- Consider the current weather while planning.
+- Never invent hotels, restaurants, attractions, transport options or prices.
+- Never estimate or invent any numeric cost.
 
-Planning Rules
+If the research does not contain a cost:
 
-- Respect every user requirement and preference.
-- User preferences always have higher priority than generic travel recommendations.
-- Never recommend food, activities, or places that conflict with the user's preferences.
-- Minimize unnecessary travel between cities.
-- For trips shorter than 6 days, recommend at most 2 cities unless there is a strong reason.
-- Group nearby attractions on the same day.
-- Keep the itinerary realistic. Do not require impossible travel within a single day.
-- Use the current weather when giving recommendations.
-- If research is insufficient, explicitly mention that instead of guessing.
+- return "Not available" for that budget field.
+- explain in budget_notes that live booking data is required.
 
-Budget Rules
+ Budget status must be determined only from available research.
 
-- Never change the user's budget currency.
-- Never invent hotel, flight or attraction prices.
-- If live prices are unavailable, clearly mention that booking data is required.
-- Keep recommendations appropriate for the user's budget.
+If total trip cost cannot be calculated from the available research,
+set:
+
+budget_status = "Cannot determine"
+
+and explain why in budget_notes.
+
+Only use prices explicitly present in the research summary.
+- Never copy the user's budget as the estimated trip cost.
+- Keep all costs in {requirements.get("budget_currency")}.
 """
 
         response = structured_llm.invoke(prompt)

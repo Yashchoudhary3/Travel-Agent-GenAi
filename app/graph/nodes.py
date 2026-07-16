@@ -60,6 +60,5 @@ def research_node(state):
     state["research_data"] = research_agent.run(
         state["requirements"]
     )
-    print(state["research_data"],"==========")
 
     return state

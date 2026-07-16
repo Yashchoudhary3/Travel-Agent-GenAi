@@ -1,12 +1,13 @@
-from app.tools.tavily_tool import travel_search
-from app.tools.geocoding_tool import get_coordinates
-from app.tools.weather_tool import get_weather
-
 from app.config.llm import llm
 from app.models.research_summary import ResearchSummary
 
+from app.tools.geocoding_tool import get_coordinates
+from app.tools.tavily_tool import iter_travel_search, travel_search
+from app.tools.weather_tool import get_weather
+
+
 structured_llm = llm.with_structured_output(
-    ResearchSummary
+    ResearchSummary,
 )
 
 
@@ -17,20 +18,23 @@ class ResearchAgent:
         requirements: dict,
     ):
 
-        destination = requirements["destination"]
-        travel_style = requirements["travel_style"]
-
-        preferences = ", ".join(
-            requirements.get(
-                "additional_preferences",
-                [],
-            )
-        )
-
         return travel_search(
-            destination=destination,
-            travel_style=travel_style,
-            preferences=preferences,
+            destination=requirements["destination"],
+            preferences=", ".join(
+                requirements.get(
+                    "additional_preferences",
+                    []
+                )
+            ),
+            hotel_preference=requirements.get(
+                "hotel_preference"
+            ),
+            food_preference=requirements.get(
+                "food_preference"
+            ),
+            transport_preference=requirements.get(
+                "transport_preference"
+            ),
         )
 
     def _format_search_results(
@@ -42,60 +46,84 @@ class ResearchAgent:
 
         for category, results in search_results.items():
 
-            text = f"{category.replace('_', ' ').title()}:\n\n"
+            section = [
+                f"{category.replace('_', ' ').title()}:"
+            ]
 
             for item in results:
 
                 title = item.get("title", "")
-                snippet = item.get("content") or item.get("snippet", "")
+                content = (
+                    item.get("content")
+                    or item.get("snippet", "")
+                )
 
                 if title:
-                    text += f"- {title}\n"
+                    section.append(f"- {title}")
 
-                if snippet:
-                    text += f"  {snippet}\n\n"
+                if content:
+                    section.append(content)
 
-            sections.append(text)
+            sections.append(
+                "\n".join(section)
+            )
 
-        return "\n".join(sections)
+        return "\n\n".join(sections)
 
     def _summarize_research(
-        self,
-        destination: str,
-        formatted_research: str,
-    ):
+    self,
+    destination: str,
+    formatted_research: str,
+):
 
-        prompt = f"""
+     prompt = f"""
 You are a travel research analyst.
-
-Read the retrieved travel information and extract only factual information.
-
-Rules:
-- Do not invent facts.
-- Ignore advertisements and sponsored content.
-- Ignore website names.
-- Ignore article titles where possible.
-- Prefer facts mentioned multiple times.
-- If information is missing, leave the field empty.
-- Keep responses concise.
 
 Destination:
 {destination}
 
 Research:
-
 {formatted_research}
 
-Return the response using the provided structured schema.
+Extract the information into the provided schema.
+
+Rules:
+
+- Use ONLY the supplied research.
+- Do NOT invent information.
+- Ignore advertisements and promotional content.
+- If information is unavailable, return null.
+
+IMPORTANT:
+
+The following fields MUST ALWAYS be JSON arrays, even if there is only ONE value:
+
+- must_visit_places
+- travel_tips
+- local_transport
+- food_to_try
+- recommended_restaurants
+- recommended_hotels
+
+Correct:
+
+must_visit_places = ["Tokyo", "Kyoto"]
+
+Wrong:
+
+must_visit_places = "Tokyo, Kyoto"
+
+Never return comma-separated strings for list fields.
+
+All cost fields and best_time should be plain strings.
 """
 
-        return structured_llm.invoke(prompt)
+     return structured_llm.invoke(prompt)
 
     def _get_location(
         self,
         destination: str,
     ):
-
         return get_coordinates(destination)
 
     def _get_weather(
@@ -103,7 +131,7 @@ Return the response using the provided structured schema.
         location: dict,
     ):
 
-        if location is None:
+        if not location:
             return None
 
         return get_weather(
@@ -118,11 +146,17 @@ Return the response using the provided structured schema.
 
         destination = requirements["destination"]
 
-        location = self._get_location(destination)
+        location = self._get_location(
+            destination
+        )
 
-        weather = self._get_weather(location)
+        weather = self._get_weather(
+            location
+        )
 
-        search_results = self._search_web(requirements)
+        search_results = self._search_web(
+            requirements
+        )
 
         formatted_research = self._format_search_results(
             search_results
@@ -138,4 +172,65 @@ Return the response using the provided structured schema.
             "location": location,
             "weather": weather,
             "research_summary": research_summary.model_dump(),
+        }
+
+    def iter_run(
+        self,
+        requirements: dict,
+    ):
+        destination = requirements["destination"]
+        preferences = ", ".join(
+            requirements.get("additional_preferences", [])
+        )
+
+        yield {
+            "type": "status",
+            "message": f"Pinpointing {destination} on the map...",
+        }
+
+        location = self._get_location(destination)
+
+        yield {
+            "type": "status",
+            "message": "Checking current weather at your destination...",
+        }
+
+        weather = self._get_weather(location)
+
+        search_results = {}
+
+        for event in iter_travel_search(
+            destination=destination,
+            preferences=preferences,
+            hotel_preference=requirements.get("hotel_preference"),
+            food_preference=requirements.get("food_preference"),
+            transport_preference=requirements.get("transport_preference"),
+        ):
+            if event["type"] == "status":
+                yield event
+            else:
+                search_results = event["data"]
+
+        yield {
+            "type": "status",
+            "message": "Analyzing research and summarizing findings...",
+        }
+
+        formatted_research = self._format_search_results(
+            search_results
+        )
+
+        research_summary = self._summarize_research(
+            destination,
+            formatted_research,
+        )
+
+        yield {
+            "type": "research_complete",
+            "data": {
+                "destination": destination,
+                "location": location,
+                "weather": weather,
+                "research_summary": research_summary.model_dump(),
+            },
         }

@@ -6,80 +6,126 @@ from app.config.settings import TAVILY_API_KEY
 client = TavilyClient(api_key=TAVILY_API_KEY)
 
 SEARCH_QUERIES = {
-    "attractions": (
-        "Best tourist attractions in {destination} "
-        "for {travel_style} travelers {preferences}"
-    ),
+    "attractions":
+        "Top tourist attractions in {destination}",
 
-    "food": (
-        "Best food options in {destination} "
-        "for travelers who prefer {preferences}"
-    ),
+    "hotels":
+        "Best {hotel_preference} hotels in {destination}",
 
-    "transport": (
-        "Public transportation in {destination} for tourists"
-    ),
+    "restaurants":
+        "Best {food_preference} restaurants in {destination}",
 
-    "travel_tips": (
-        "Travel tips for {travel_style} travelers visiting {destination}"
-    ),
+    "local_food":
+        "Popular local food and famous dishes in {destination}",
 
-    "best_time": (
-        "Best time to visit {destination}"
-    ),
+    "transport":
+        "Tourist transportation in {destination} using {transport_preference}",
+
+    "travel_cost":
+        "Average hotel, food, transport and sightseeing cost per day in {destination}",
+
+    "travel_tips":
+        "Travel tips for first time visitors to {destination}",
+
+    "best_time":
+        "Best time to visit {destination}",
+}
+
+SEARCH_STATUS = {
+    "attractions": "Searching top attractions and must-visit places...",
+    "hotels": "Finding hotels that match your preferences...",
+    "restaurants": "Looking for restaurants you'll like...",
+    "local_food": "Discovering local food and famous dishes...",
+    "transport": "Researching local transport options...",
+    "travel_cost": "Checking average hotel, food, and transport costs...",
+    "travel_tips": "Gathering travel tips for your destination...",
+    "best_time": "Finding the best time to visit...",
 }
 
 
 def _search(query: str):
     response = client.search(
         query=query,
-        max_results=3,
         search_depth="basic",
+        max_results=2,
     )
 
-    return response["results"]
+    return response.get("results", [])
 
 
 def travel_search(
     destination: str,
-    travel_style: str = "",
-    preferences: str = "",
+    preferences: str,
+    hotel_preference: str,
+    food_preference: str,
+    transport_preference: str,
 ):
 
     results = {}
 
-    queries = {
-        "attractions":
-            f"Best tourist attractions in {destination} for {travel_style}. {preferences}",
-
-        "food":
-            f"Best food in {destination}. User preferences: {preferences}",
-
-        "transport":
-            f"Public transportation in {destination} for tourists",
-
-        "travel_tips":
-            f"Travel tips for first time visitors to {destination}. Preferences: {preferences}",
-
-        "best_time":
-            f"Best time to visit {destination}",
-    }
-
     with ThreadPoolExecutor() as executor:
 
-        futures = {
-        key: executor.submit(
-        _search,
-        query.format(
-            destination=destination,
-            travel_style=travel_style,
-            preferences=preferences,
-        ),
-    )
-        for key, query in SEARCH_QUERIES.items()
-}
+        futures = {}
+
+        for key, template in SEARCH_QUERIES.items():
+
+            query = template.format(
+                destination=destination,
+                hotel_preference=hotel_preference,
+                food_preference=food_preference,
+                transport_preference=transport_preference,
+            )
+
+            if preferences and key in {
+                "attractions",
+                "restaurants",
+                "travel_tips",
+            }:
+                query += f". User interests: {preferences}"
+
+            futures[key] = executor.submit(
+                _search,
+                query,
+            )
 
         for key, future in futures.items():
             results[key] = future.result()
 
     return results
+
+
+def iter_travel_search(
+    destination: str,
+    preferences: str,
+    hotel_preference: str,
+    food_preference: str,
+    transport_preference: str,
+):
+    results = {}
+
+    for key, template in SEARCH_QUERIES.items():
+        yield {
+            "type": "status",
+            "message": SEARCH_STATUS[key],
+        }
+
+        query = template.format(
+            destination=destination,
+            hotel_preference=hotel_preference,
+            food_preference=food_preference,
+            transport_preference=transport_preference,
+        )
+
+        if preferences and key in {
+            "attractions",
+            "restaurants",
+            "travel_tips",
+        }:
+            query += f". User interests: {preferences}"
+
+        results[key] = _search(query)
+
+    yield {
+        "type": "results",
+        "data": results,
+    }
