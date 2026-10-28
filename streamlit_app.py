@@ -4,7 +4,19 @@ from app.services.chat_service import handle_chat_stream, reset_session
 
 st.set_page_config(page_title="AI Travel Planner", page_icon="✈️")
 st.title("AI Travel Planner")
-st.caption("Describe your trip and I'll help you plan it.")
+st.caption("A multi-agent planner: requirements, research, cost estimation, then itinerary.")
+
+with st.sidebar:
+    st.subheader("Agents")
+    st.markdown(
+        """
+1. **Requirement Agent** extracts the trip details  
+2. **Research Agent** looks up places, weather, and costs  
+3. **Cost Estimation Agent** builds the budget  
+4. **Planning Agent** writes the itinerary  
+        """
+    )
+    st.caption("Each agent retries failed tools and falls back instead of crashing the trip.")
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = None
@@ -49,6 +61,7 @@ if prompt:
                 for event in handle_chat_stream(
                     prompt,
                     st.session_state.session_id,
+                    history=st.session_state.messages,
                 ):
                     if event["type"] == "status":
                         st.write(event["message"])

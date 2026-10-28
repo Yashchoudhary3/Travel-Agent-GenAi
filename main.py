@@ -2,9 +2,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.graph.workflow import graph
 from app.models.chat_models import ChatRequest, ChatResponse
-from app.services.chat_service import handle_chat, reset_session, stream_chat_events
+from app.services.chat_service import (
+    handle_chat,
+    reset_session,
+    run_demo_graph,
+    stream_chat_events,
+)
 
 app = FastAPI(title="AI Travel Planner")
 
@@ -24,20 +28,11 @@ def health_check():
 
 @app.get("/demo")
 def run_demo():
-    initial_state = {
-        "user_query": (
-            "Plan a 7 day trip from Delhi to Japan "
-            "for 2 people with a budget of 3000 dollars. travel style is anime "
-            "will want to travel via plan , want 3 start hotel and like indian food only"
-        ),
-        "requirements": {},
-        "missing_fields": [],
-        "research_data": {},
-        "travel_plan": {},
-        "final_response": "",
-    }
-
-    return graph.invoke(initial_state)
+    return run_demo_graph(
+        "Plan a 7 day trip from Delhi to Japan "
+        "for 2 people with a budget of 3000 dollars. travel style is anime "
+        "will want to travel via plan , want 3 start hotel and like indian food only"
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -47,7 +42,10 @@ def chat(request: ChatRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    result = handle_chat(message, request.session_id)
+    try:
+        result = handle_chat(message, request.session_id)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
     return ChatResponse(**result)
 
